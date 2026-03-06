@@ -1,0 +1,16 @@
+[
+{
+  "modid": "GhostClient",
+  "name": "GhostClient",
+  "description": "Another Simple GhostClient.",
+  "version": "${version}",
+  "mcversion": "${mcversion}",
+  "url": "https://ravensharp.xyz",
+  "updateUrl": "",
+  "authorList": ["RavenSharp"],
+  "credits": "Thanks to ASMR which helped my motivation while coding!",
+  "logoFile": "",
+  "screenshots": [],
+  "dependencies": []
+}
+]

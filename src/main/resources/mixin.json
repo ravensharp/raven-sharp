@@ -1,0 +1,22 @@
+{
+  "package": "xyz.ravensharp.gc.mixins",
+  "required": true,
+  "refmap": "mixin.gc.refmap.json",
+  "compatibilityLevel": "JAVA_8",
+  "mixins": [
+    "ChatLine$ChatLimit",
+    "HideSelf$FMLHandshakeSpoof",
+    "ReachExtender$MixinEntityRenderer",
+    "InvisibleRenderer$MixinRendererLivingEntity",
+    "RemoveDelays$HitDelay",
+    "RemoveDelays$MouseDelay",
+    "RemoveDelays$BreakingDelay",
+    "RemoveDelays$JumpDelay",
+    "CameraEffects$MixinEntityLivingBase",
+    "CameraEffects$MixinItemRenderer",
+    "CameraEffects$MixinGuiIngame",
+    "CameraEffects$MixinEntityRenderer",
+    "CameraEffects$MixinWorld",
+    "CameraEffects$MixinBiomeGenBase"
+  ]
+}
