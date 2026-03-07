@@ -19,7 +19,7 @@ import xyz.ravensharp.gc.setting.SettingManager;
 @Mod(modid = Sharp.MODID, version = Sharp.VERSION)
 public class Sharp {
 	public static final String MODID = "GhostClient";
-	public static final String VERSION = "1.0.1";
+	public static final String VERSION = "1.0.2";
 
 	public static ClickGui clickGui;
 	public static ConfigGui configGui;

@@ -16,6 +16,8 @@ public class Bridger extends Module {
 	}
 
 	public boolean isPitchOkay() {
+		if (mc.thePlayer == null)
+			return false;
 		if (!this.getSetting("On Lookdown").getBoolean()) {
 			return true;
 		}
@@ -49,6 +51,12 @@ public class Bridger extends Module {
 	}
 
 	public void tasker() {
+		if (!this.isToggled()) {
+			return;
+		}
+		if (mc.thePlayer == null)
+			return;
+
 		int keyBindSneak = mc.gameSettings.keyBindSneak.getKeyCode();
 		boolean isPhysicalKeyDown = KeyboardUtil.getActualState(keyBindSneak);
 
@@ -65,7 +73,10 @@ public class Bridger extends Module {
 		}
 
 		if (HitBoxUtil.calculateSupportPercentage() < sens) {
-			KeyboardUtil.simulateKeyPress(keyBindSneak);
+			if (!mc.thePlayer.isSneaking()) {
+				KeyboardUtil.resetToState(keyBindSneak);
+				KeyboardUtil.simulateKeyPress(keyBindSneak);
+			}
 		} else {
 			KeyboardUtil.resetToState(keyBindSneak);
 		}

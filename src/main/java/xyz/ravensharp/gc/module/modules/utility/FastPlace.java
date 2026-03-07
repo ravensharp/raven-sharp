@@ -19,13 +19,17 @@ public class FastPlace extends Module {
 
 	public FastPlace() {
 		super("FastPlace", "Advanced Place Clicker.", Category.UTILITY);
-		this.addSetting(new Setting("Target CPS", 1D, 50D, 20D));
+		this.addSetting(new Setting("CPS Target", 1D, 50D, 20D));
+		this.addSetting(new Setting("Drop Target", 1D, 15D, 3D));
+		this.addSetting(new Setting("Increase Target", 1D, 15D, 3D));
 
 		ArrayList<String> randomModes = new ArrayList<>();
+		randomModes.add("Very Random");
+		randomModes.add("Random");
 		randomModes.add("Normal");
 		randomModes.add("Stable");
 		randomModes.add("Very Stable");
-		this.addSetting(new Setting("Random Level", randomModes, randomModes.get(0)));
+		this.addSetting(new Setting("Random Level", randomModes, randomModes.get(2)));
 		this.addSetting(new Setting("Only Click When Placeable", false));
 	}
 
@@ -38,18 +42,47 @@ public class FastPlace extends Module {
 			while (this.isToggled()) {
 				if (mc.thePlayer == null || mc.theWorld == null || mc.currentScreen != null) {
 					MouseUtil.unsilence(1);
-					preciseSleep(10_000_000L);
+
+					long waitTarget = System.nanoTime() + 10_000_000L;
+					while (true) {
+						if (System.nanoTime() >= waitTarget) {
+							break;
+						}
+					}
+
 					lastClickTime = System.nanoTime();
 					continue;
 				}
 
 				ItemStack item = mc.thePlayer.getHeldItem();
-				if (item == null)
+				if (item == null || !(item.getItem() instanceof ItemBlock)) {
+					MouseUtil.unsilence(1);
+					MouseUtil.resetToState(1);
+
+					long waitTarget = System.nanoTime() + 10_000_000L;
+					while (true) {
+						if (System.nanoTime() >= waitTarget) {
+							break;
+						}
+					}
+
+					lastClickTime = System.nanoTime();
 					continue;
-				if (!(item.getItem() instanceof ItemBlock))
-					continue;
+				}
+
 				if (this.getSetting("Only Click When Placeable").getBoolean()) {
 					if (!BlockUtil.isFocusOnBlock()) {
+						MouseUtil.unsilence(1);
+						MouseUtil.resetToState(1);
+
+						long waitTarget = System.nanoTime() + 10_000_000L;
+						while (true) {
+							if (System.nanoTime() >= waitTarget) {
+								break;
+							}
+						}
+
+						lastClickTime = System.nanoTime();
 						continue;
 					}
 				}
@@ -57,10 +90,18 @@ public class FastPlace extends Module {
 				if (!MouseUtil.getActualState(1)) {
 					MouseUtil.unsilence(1);
 					MouseUtil.resetToState(1);
-					preciseSleep(1_000_000L);
+
+					long waitTarget = System.nanoTime() + 1_000_000L;
+					while (true) {
+						if (System.nanoTime() >= waitTarget) {
+							break;
+						}
+					}
+
 					lastClickTime = System.nanoTime();
 					continue;
 				}
+
 				MouseUtil.silence(1);
 
 				executeClickCycle();
@@ -82,16 +123,26 @@ public class FastPlace extends Module {
 	}
 
 	private void executeClickCycle() {
-		double targetCPS = getSetting("Target CPS").getDouble();
+		double targetCPS = getSetting("CPS Target").getDouble();
+
 		String randomMode = getSetting("Random Level").getString();
+		double dropTarget = getSetting("Drop Target").getDouble();
+		double increaseTarget = getSetting("Increase Target").getDouble();
 
 		double currentCPS = targetCPS + (random.nextGaussian() * getCpsSigma(randomMode));
 
+		double triggerChance = 0.04;
+		if (randomMode.equalsIgnoreCase("Stable")) {
+			triggerChance = 0.02;
+		} else if (randomMode.equalsIgnoreCase("Very Stable")) {
+			triggerChance = 0.01;
+		}
+
 		double chance = random.nextDouble();
-		if (chance < 0.04) {
-			currentCPS -= (random.nextDouble() * 2.0 + 3.0);
-		} else if (chance > 0.97) {
-			currentCPS += (random.nextDouble() * 2.0 + 3.0);
+		if (chance < triggerChance) {
+			currentCPS -= (random.nextDouble() * dropTarget);
+		} else if (chance > (1.0 - triggerChance)) {
+			currentCPS += (random.nextDouble() * increaseTarget);
 		}
 
 		double logNormalInterval = 1000.0 / currentCPS;
@@ -108,7 +159,12 @@ public class FastPlace extends Module {
 
 		MouseUtil.simulateClick(1);
 
-		preciseSleep((long) (holdTimeMs * 1_000_000L));
+		long holdTarget = System.nanoTime() + (long) (holdTimeMs * 1_000_000L);
+		while (true) {
+			if (System.nanoTime() >= holdTarget) {
+				break;
+			}
+		}
 
 		MouseUtil.simulateUnclick(1);
 
@@ -116,7 +172,12 @@ public class FastPlace extends Module {
 		long remainingNanos = expectedEnd - currentNanos;
 
 		if (remainingNanos > 0) {
-			preciseSleep(remainingNanos);
+			long remainTarget = System.nanoTime() + remainingNanos;
+			while (true) {
+				if (System.nanoTime() >= remainTarget) {
+					break;
+				}
+			}
 		}
 
 		lastClickTime = System.nanoTime();
@@ -127,23 +188,12 @@ public class FastPlace extends Module {
 			return 0.5;
 		if (mode.equalsIgnoreCase("Stable"))
 			return 1.0;
+		if (mode.equalsIgnoreCase("Normal"))
+			return 1.5;
+		if (mode.equalsIgnoreCase("Random"))
+			return 3.5;
+		if (mode.equalsIgnoreCase("Very Random"))
+			return 5;
 		return 1.5;
-	}
-
-	private void preciseSleep(long nanos) {
-		if (nanos <= 0)
-			return;
-		long end = System.nanoTime() + nanos;
-		while (System.nanoTime() < end) {
-			long remaining = end - System.nanoTime();
-			if (remaining > 10_000_000L) {
-				try {
-					Thread.sleep(1);
-				} catch (InterruptedException e) {
-					Thread.currentThread().interrupt();
-					break;
-				}
-			}
-		}
 	}
 }

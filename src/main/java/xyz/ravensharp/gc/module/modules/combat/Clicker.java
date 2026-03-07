@@ -20,20 +20,24 @@ public class Clicker extends Module {
 	public Clicker() {
 		super("Clicker", "Advanced Humanized Clicker.", Category.COMBAT);
 		this.addSetting(new Setting("Break Block", true));
-		this.addSetting(new Setting("Target CPS", 1D, 25D, 15D));
+		this.addSetting(new Setting("CPS Target", 1D, 25D, 16D));
+		this.addSetting(new Setting("Drop Target", 1D, 15D, 3.5D));
+		this.addSetting(new Setting("Increase Target", 1D, 15D, 4.5D));
 
 		ArrayList<String> randomModes = new ArrayList<>();
+		randomModes.add("Very Random");
+		randomModes.add("Random");
 		randomModes.add("Normal");
 		randomModes.add("Stable");
 		randomModes.add("Very Stable");
-		this.addSetting(new Setting("Random Level", randomModes, randomModes.get(0)));
+		this.addSetting(new Setting("Random Level", randomModes, randomModes.get(2)));
 
 		ArrayList<String> rightClickModes = new ArrayList<>();
 		rightClickModes.add("None");
 		rightClickModes.add("OnRightHold");
 		rightClickModes.add("Always");
 		this.addSetting(new Setting("Blockhit Mode", rightClickModes, rightClickModes.get(0)));
-		this.addSetting(new Setting("Block Chance", 1D, 100D, 30D));
+		this.addSetting(new Setting("Block Chance", 1D, 100D, 55.5D));
 	}
 
 	@Override
@@ -41,15 +45,19 @@ public class Clicker extends Module {
 		super.onEnable();
 		lastClickTime = System.nanoTime();
 
-		// silence need fix
-		// silence for right click shall only activated only if block hit enabled.
-
 		timerThread = new Thread(() -> {
 			while (this.isToggled()) {
 				if (mc.thePlayer == null || mc.theWorld == null || mc.currentScreen != null) {
 					MouseUtil.unsilence(0);
 					MouseUtil.unsilence(1);
-					preciseSleep(10_000_000L);
+
+					long waitTarget = System.nanoTime() + 10_000_000L;
+					while (true) {
+						if (System.nanoTime() >= waitTarget) {
+							break;
+						}
+					}
+
 					lastClickTime = System.nanoTime();
 					continue;
 				}
@@ -59,7 +67,6 @@ public class Clicker extends Module {
 					MouseUtil.unsilence(1);
 					MouseUtil.resetToState(0);
 					MouseUtil.resetToState(1);
-					// preciseSleep(1_000_000L);
 					lastClickTime = System.nanoTime();
 					continue;
 				}
@@ -67,7 +74,6 @@ public class Clicker extends Module {
 				if (getSetting("Break Block").getBoolean() && BlockUtil.isFocusOnBlock()) {
 					MouseUtil.unsilence(0);
 					MouseUtil.resetToState(0);
-					// preciseSleep(10_000_000L);
 					lastClickTime = System.nanoTime();
 					continue;
 				}
@@ -97,19 +103,29 @@ public class Clicker extends Module {
 	}
 
 	private void executeClickCycle() {
-		double targetCPS = getSetting("Target CPS").getDouble();
+		double targetCPS = getSetting("CPS Target").getDouble();
 
 		String randomMode = getSetting("Random Level").getString();
 		String blockHitMode = getSetting("Blockhit Mode").getString();
 		double blockChance = getSetting("Block Chance").getDouble();
 
+		double dropTarget = getSetting("Drop Target").getDouble();
+		double increaseTarget = getSetting("Increase Target").getDouble();
+
 		double currentCPS = targetCPS + (random.nextGaussian() * getCpsSigma(randomMode));
 
+		double triggerChance = 0.04;
+		if (randomMode.equalsIgnoreCase("Stable")) {
+			triggerChance = 0.02;
+		} else if (randomMode.equalsIgnoreCase("Very Stable")) {
+			triggerChance = 0.01;
+		}
+
 		double chance = random.nextDouble();
-		if (chance < 0.04) {
-			currentCPS -= (random.nextDouble() * 2.0 + 3.0);
-		} else if (chance > 0.97) {
-			currentCPS += (random.nextDouble() * 2.0 + 3.0);
+		if (chance < triggerChance) {
+			currentCPS -= (random.nextDouble() * dropTarget);
+		} else if (chance > (1.0 - triggerChance)) {
+			currentCPS += (random.nextDouble() * increaseTarget);
 		}
 
 		double logNormalInterval = 1000.0 / currentCPS;
@@ -128,7 +144,12 @@ public class Clicker extends Module {
 
 		MouseUtil.simulateClick(0);
 
-		preciseSleep((long) (holdTimeMs * 1_000_000L));
+		long holdTarget = System.nanoTime() + (long) (holdTimeMs * 1_000_000L);
+		while (true) {
+			if (System.nanoTime() >= holdTarget) {
+				break;
+			}
+		}
 
 		MouseUtil.simulateUnclick(0);
 
@@ -140,7 +161,12 @@ public class Clicker extends Module {
 		long remainingNanos = expectedEnd - currentNanos;
 
 		if (remainingNanos > 0) {
-			preciseSleep(remainingNanos);
+			long remainTarget = System.nanoTime() + remainingNanos;
+			while (true) {
+				if (System.nanoTime() >= remainTarget) {
+					break;
+				}
+			}
 		}
 
 		lastClickTime = System.nanoTime();
@@ -151,6 +177,12 @@ public class Clicker extends Module {
 			return 0.5;
 		if (mode.equalsIgnoreCase("Stable"))
 			return 1.0;
+		if (mode.equalsIgnoreCase("Normal"))
+			return 1.5;
+		if (mode.equalsIgnoreCase("Random"))
+			return 3.5;
+		if (mode.equalsIgnoreCase("Very Random"))
+			return 5;
 		return 1.5;
 	}
 
@@ -174,27 +206,23 @@ public class Clicker extends Module {
 		long hold = (long) (currentInterval * 0.2 * 1_000_000L);
 
 		new Thread(() -> {
-			preciseSleep(delay);
-			MouseUtil.simulateClick(1);
-			preciseSleep(hold);
-			MouseUtil.simulateUnclick(1);
-		}).start();
-	}
-
-	private void preciseSleep(long nanos) {
-		if (nanos <= 0)
-			return;
-		long end = System.nanoTime() + nanos;
-		while (System.nanoTime() < end) {
-			long remaining = end - System.nanoTime();
-			if (remaining > 10_000_000L) {
-				try {
-					Thread.sleep(1);
-				} catch (InterruptedException e) {
-					Thread.currentThread().interrupt();
+			long delayTarget = System.nanoTime() + delay;
+			while (true) {
+				if (System.nanoTime() >= delayTarget) {
 					break;
 				}
 			}
-		}
+
+			MouseUtil.simulateClick(1);
+
+			long holdTarget = System.nanoTime() + hold;
+			while (true) {
+				if (System.nanoTime() >= holdTarget) {
+					break;
+				}
+			}
+
+			MouseUtil.simulateUnclick(1);
+		}).start();
 	}
 }

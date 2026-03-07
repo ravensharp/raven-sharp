@@ -1,11 +1,14 @@
 package xyz.ravensharp.gc.module.modules.combat;
 
+import java.security.SecureRandom;
 import java.util.ArrayList;
 
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityLivingBase;
 import net.minecraft.util.AxisAlignedBB;
 import net.minecraft.util.MathHelper;
+import net.minecraft.util.MouseHelper;
+import net.minecraft.util.MovingObjectPosition;
 import net.minecraft.util.Vec3;
 import xyz.ravensharp.gc.module.Category;
 import xyz.ravensharp.gc.module.Module;
@@ -15,10 +18,19 @@ import xyz.ravensharp.gc.utils.MouseUtil;
 
 public class AimAssist extends Module {
 
-	private EntityLivingBase target;
-	private float yawVelocity = 0.0F;
-	private float pitchVelocity = 0.0F;
+	private volatile EntityLivingBase target;
+	private volatile boolean isCalculatingTarget = false;
+	private double yawVelocity = 0.0D;
+	private double pitchVelocity = 0.0D;
 	private Thread aimThread;
+	private final SecureRandom secureRandom = new SecureRandom();
+
+	private long lastTime = 0;
+	private double yawRemainder = 0.0D;
+	private double pitchRemainder = 0.0D;
+
+	private MouseHelper originalMouseHelper;
+	private CustomMouseHelper customMouseHelper;
 
 	public AimAssist() {
 		super("AimAssist", "Advanced humanized AimAssist with physics & entity filters.", Category.COMBAT);
@@ -35,11 +47,13 @@ public class AimAssist extends Module {
 		this.addSetting(new Setting("Priority", priorities, priorities.get(0)));
 
 		this.addSetting(new Setting("Distance", 1.0D, 6.0D, 4.5D));
-		this.addSetting(new Setting("FOV", 1.0D, 180.0D, 75.0D));
+		this.addSetting(new Setting("FOV", 1.0D, 180.0D, 85.0D));
 		this.addSetting(new Setting("Click Only", true));
+		this.addSetting(new Setting("Stop On Target", true));
+		this.addSetting(new Setting("Human Curve", true));
 
-		this.addSetting(new Setting("Aim Speed", 0.1D, 10.0D, 1.0D));
-		this.addSetting(new Setting("Friction", 0.1D, 0.99D, 0.65D));
+		this.addSetting(new Setting("Aim Speed", 6.5D, 10.0D, 1.0D));
+		this.addSetting(new Setting("Friction", 0.25D, 0.99D, 0.65D));
 
 		EntitySettingUtil.initSettings(this);
 	}
@@ -47,12 +61,27 @@ public class AimAssist extends Module {
 	@Override
 	public void onEnable() {
 		super.onEnable();
-		yawVelocity = 0.0F;
-		pitchVelocity = 0.0F;
+		yawVelocity = 0.0D;
+		pitchVelocity = 0.0D;
+		target = null;
+		isCalculatingTarget = false;
+
+		lastTime = System.nanoTime();
+		yawRemainder = 0.0D;
+		pitchRemainder = 0.0D;
+
+		if (mc.mouseHelper != null && !(mc.mouseHelper instanceof CustomMouseHelper)) {
+			originalMouseHelper = mc.mouseHelper;
+			customMouseHelper = new CustomMouseHelper();
+			mc.mouseHelper = customMouseHelper;
+		}
 
 		aimThread = new Thread(() -> {
 			while (this.isToggled()) {
-				runAimLogic();
+				try {
+					runAimLogic();
+				} catch (Exception e) {
+				}
 				try {
 					Thread.sleep(1L);
 				} catch (InterruptedException e) {
@@ -71,8 +100,16 @@ public class AimAssist extends Module {
 			aimThread.interrupt();
 			aimThread = null;
 		}
-		yawVelocity = 0.0F;
-		pitchVelocity = 0.0F;
+
+		if (originalMouseHelper != null) {
+			mc.mouseHelper = originalMouseHelper;
+			customMouseHelper = null;
+			originalMouseHelper = null;
+		}
+
+		yawVelocity = 0.0D;
+		pitchVelocity = 0.0D;
+		target = null;
 	}
 
 	private void runAimLogic() {
@@ -81,21 +118,39 @@ public class AimAssist extends Module {
 
 		if (this.getSetting("Click Only").getBoolean() && !MouseUtil.getActualState(0)) {
 			target = null;
-			yawVelocity *= 0.5F;
-			pitchVelocity *= 0.5F;
+			yawVelocity *= 0.5D;
+			pitchVelocity *= 0.5D;
 			return;
 		}
 
-		target = getOptimalTarget();
+		updateTargetSafe();
+
 		if (target != null) {
 			aimToTarget(target);
 		} else {
-			yawVelocity *= 0.5F;
-			pitchVelocity *= 0.5F;
+			yawVelocity *= 0.5D;
+			pitchVelocity *= 0.5D;
 		}
 	}
 
-	private EntityLivingBase getOptimalTarget() {
+	private void updateTargetSafe() {
+		if (mc.isCallingFromMinecraftThread()) {
+			target = calculateOptimalTarget();
+		} else {
+			if (!isCalculatingTarget) {
+				isCalculatingTarget = true;
+				mc.addScheduledTask(() -> {
+					try {
+						target = calculateOptimalTarget();
+					} finally {
+						isCalculatingTarget = false;
+					}
+				});
+			}
+		}
+	}
+
+	private EntityLivingBase calculateOptimalTarget() {
 		EntityLivingBase bestTarget = null;
 		double maxFov = this.getSetting("FOV").getDouble();
 		double maxDist = this.getSetting("Distance").getDouble();
@@ -139,6 +194,25 @@ public class AimAssist extends Module {
 	}
 
 	private void aimToTarget(EntityLivingBase entity) {
+		boolean isHovering = false;
+
+		if (this.getSetting("Stop On Target").getBoolean()) {
+			if (mc.objectMouseOver != null
+					&& mc.objectMouseOver.typeOfHit == MovingObjectPosition.MovingObjectType.ENTITY) {
+				if (mc.objectMouseOver.entityHit == entity) {
+					isHovering = true;
+				}
+			}
+		}
+
+		long currentTime = System.nanoTime();
+		double deltaTime = (currentTime - lastTime) / 1000000.0D;
+		lastTime = currentTime;
+
+		if (deltaTime > 50.0D) {
+			deltaTime = 50.0D;
+		}
+
 		Vec3 playerEyes = mc.thePlayer.getPositionEyes(1.0F);
 		double targetX, targetY, targetZ;
 		String mode = this.getSetting("Target Mode").getString();
@@ -152,7 +226,7 @@ public class AimAssist extends Module {
 		} else {
 			targetX = entity.posX;
 			targetZ = entity.posZ;
-			targetY = entity.posY + (entity.getEyeHeight() * 0.7);
+			targetY = entity.posY + (entity.getEyeHeight() * 0.7D);
 		}
 
 		double diffX = targetX - playerEyes.xCoord;
@@ -160,34 +234,63 @@ public class AimAssist extends Module {
 		double diffZ = targetZ - playerEyes.zCoord;
 		double dist = MathHelper.sqrt_double(diffX * diffX + diffZ * diffZ);
 
-		float targetYaw = (float) (Math.atan2(diffZ, diffX) * 180.0D / Math.PI) - 90.0F;
-		float targetPitch = (float) -(Math.atan2(diffY, dist) * 180.0D / Math.PI);
+		double targetYaw = (Math.atan2(diffZ, diffX) * 180.0D / Math.PI) - 90.0D;
+		double targetPitch = -(Math.atan2(diffY, dist) * 180.0D / Math.PI);
 
-		float yawDiff = MathHelper.wrapAngleTo180_float(targetYaw - mc.thePlayer.rotationYaw);
-		float pitchDiff = MathHelper.wrapAngleTo180_float(targetPitch - mc.thePlayer.rotationPitch);
+		if (this.getSetting("Human Curve").getBoolean()) {
+			long time = System.currentTimeMillis();
+			double curveYaw = Math.sin(time * 0.003D) * 2.0D;
+			double curvePitch = Math.cos(time * 0.004D) * 2.0D;
+			targetYaw += curveYaw;
+			targetPitch += curvePitch;
+		}
 
-		float friction = (float) this.getSetting("Friction").getDoubleInFloat();
-		float aimSpeed = (float) this.getSetting("Aim Speed").getDoubleInFloat();
+		double yawDiff = MathHelper.wrapAngleTo180_float((float) (targetYaw - mc.thePlayer.rotationYaw));
+		double pitchDiff = MathHelper.wrapAngleTo180_float((float) (targetPitch - mc.thePlayer.rotationPitch));
 
-		yawVelocity += (yawDiff * aimSpeed * 0.001F);
-		pitchVelocity += (pitchDiff * aimSpeed * 0.001F);
+		double friction = this.getSetting("Friction").getDouble();
+		double baseAimSpeed = this.getSetting("Aim Speed").getDouble();
 
-		yawVelocity *= friction;
-		pitchVelocity *= friction;
+		if (isHovering) {
+			baseAimSpeed *= 0.15D;
+			friction *= 0.7D;
+		}
+
+		double randomModifier = 0.8D + secureRandom.nextDouble() * 0.4D;
+
+		double pGain = baseAimSpeed * 0.1D * randomModifier;
+		double targetYawVelocity = yawDiff * pGain;
+		double targetPitchVelocity = pitchDiff * pGain;
+
+		double timeFriction = Math.pow(friction, deltaTime / 50.0D);
+
+		yawVelocity = (yawVelocity * timeFriction) + (targetYawVelocity * (1.0D - timeFriction));
+		pitchVelocity = (pitchVelocity * timeFriction) + (targetPitchVelocity * (1.0D - timeFriction));
+
+		double stepYaw = yawVelocity * (deltaTime / 50.0D);
+		double stepPitch = pitchVelocity * (deltaTime / 50.0D);
 
 		float f = mc.gameSettings.mouseSensitivity * 0.6F + 0.2F;
-		float gcd = f * f * f * 1.2F;
+		float f1 = f * f * f * 8.0F;
+		double gcd = (double) f1 * 0.15D;
 
-		int deltaMouseX = Math.round(yawVelocity / gcd);
-		int deltaMouseY = Math.round(pitchVelocity / gcd);
+		int invert = mc.gameSettings.invertMouse ? -1 : 1;
 
-		float actualYawVelocity = deltaMouseX * gcd;
-		float actualPitchVelocity = deltaMouseY * gcd;
+		double pixelX = stepYaw / gcd;
+		double pixelY = (-stepPitch / gcd) * invert;
 
-		mc.thePlayer.rotationYaw += actualYawVelocity;
+		double totalPixelX = pixelX + yawRemainder;
+		double totalPixelY = pixelY + pitchRemainder;
 
-		float setPitch = mc.thePlayer.rotationPitch + actualPitchVelocity;
-		mc.thePlayer.rotationPitch = MathHelper.clamp_float(setPitch, -90.0F, 90.0F);
+		int injectX = (int) Math.round(totalPixelX);
+		int injectY = (int) Math.round(totalPixelY);
+
+		yawRemainder = totalPixelX - injectX;
+		pitchRemainder = totalPixelY - injectY;
+
+		if (customMouseHelper != null) {
+			customMouseHelper.inject(injectX, injectY);
+		}
 	}
 
 	private double getFovDistance(EntityLivingBase entity) {
@@ -195,5 +298,27 @@ public class AimAssist extends Module {
 		double diffZ = entity.posZ - mc.thePlayer.posZ;
 		float yaw = (float) (Math.atan2(diffZ, diffX) * 180.0D / Math.PI) - 90.0F;
 		return Math.abs(MathHelper.wrapAngleTo180_float(yaw - mc.thePlayer.rotationYaw));
+	}
+
+	private class CustomMouseHelper extends MouseHelper {
+		private int injectedDeltaX = 0;
+		private int injectedDeltaY = 0;
+
+		public synchronized void inject(int x, int y) {
+			this.injectedDeltaX += x;
+			this.injectedDeltaY += y;
+		}
+
+		@Override
+		public void mouseXYChange() {
+			super.mouseXYChange();
+
+			synchronized (this) {
+				this.deltaX += this.injectedDeltaX;
+				this.deltaY += this.injectedDeltaY;
+				this.injectedDeltaX = 0;
+				this.injectedDeltaY = 0;
+			}
+		}
 	}
 }
