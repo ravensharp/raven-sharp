@@ -3,23 +3,26 @@ package xyz.ravensharp.gc;
 import org.lwjgl.input.Keyboard;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.settings.KeyBinding;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.common.Mod.EventHandler;
 import net.minecraftforge.fml.common.event.FMLInitializationEvent;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import net.minecraftforge.fml.common.gameevent.InputEvent.KeyInputEvent;
+import net.minecraftforge.fml.common.gameevent.TickEvent;
 import xyz.ravensharp.gc.config.ConfigManager;
 import xyz.ravensharp.gc.gui.clickgui.ClickGui;
 import xyz.ravensharp.gc.gui.configgui.ConfigGui;
 import xyz.ravensharp.gc.module.Module;
 import xyz.ravensharp.gc.module.ModuleManager;
+import xyz.ravensharp.gc.module.modules.visual.ClickGUI;
 import xyz.ravensharp.gc.setting.SettingManager;
 
 @Mod(modid = Sharp.MODID, version = Sharp.VERSION)
 public class Sharp {
 	public static final String MODID = "GhostClient";
-	public static final String VERSION = "1.0.2";
+	public static final String VERSION = "1.1.0";
 
 	public static ClickGui clickGui;
 	public static ConfigGui configGui;
@@ -56,6 +59,21 @@ public class Sharp {
 			}
 		} catch (Exception q) {
 			q.printStackTrace();
+		}
+	}
+
+	@SubscribeEvent
+	public void onTick(TickEvent e) {
+		Minecraft mc = Minecraft.getMinecraft();
+		if (!ClickGUI.isMoveWhileOpen())
+			return;
+		if (mc.currentScreen == null)
+			return;
+		if (!(mc.currentScreen instanceof ClickGui))
+			return;
+
+		for (Integer key : ClickGUI.getKeys()) {
+			KeyBinding.setKeyBindState(key, Keyboard.isKeyDown(key));
 		}
 	}
 }
