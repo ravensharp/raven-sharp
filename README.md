@@ -23,4 +23,6 @@ Also, of course, since this client licensed public domain, any modules added to 
 While, you can create your own fork with customize then you can name it whatever you want, and you can license it whatever you want. (I think.)
 (I'M NOT LAWYER, NOT ASSURE)
 
+# This Project, especially combat modules are created with assistance of [TripClicker](https://tripclicker.xyz)
+
 :P
